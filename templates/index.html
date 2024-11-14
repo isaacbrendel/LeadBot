@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LeadBot Professional Chat Interface</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>LeadBot Test Interface</h1>
+        <div class="chat-box" id="chat-box">
+            <!-- Chat messages will be displayed here -->
+        </div>
+        <form id="inquiryForm" action="javascript:void(0);">
+            <textarea id="inquiry" name="inquiry" rows="3" placeholder="Enter your message here..."></textarea>
+            <button type="submit" onclick="sendInquiry()">Send</button>
+        </form>
+        <div class="demo-section">
+            <h2>Lead Classification Data (Displayed for Demo Purposes Only)</h2>
+            <div id="classification-data"></div>
+            <button onclick="updateClassificationData()">View Lead Classification</button>
+            <div id="handoff-status"></div>
+        </div>
+    </div>
+    <script>
+        // Add to your existing JavaScript
+        let conversationHistory = [];
+        
+        function formatBudget(budget) {
+            if (!budget) return 'Not specified';
+            
+            if (budget.single_value) {
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD'
+                }).format(budget.single_value);
+            }
+            
+            if (budget.min_value && budget.max_value) {
+                const minFormatted = new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD'
+                }).format(budget.min_value);
+                
+                const maxFormatted = new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD'
+                }).format(budget.max_value);
+                
+                return `${minFormatted} - ${maxFormatted}`;
+            }
+            
+            return 'Not specified';
+        }
+        
+        function formatLocations(locations) {
+            if (!locations || locations.length === 0) return 'Not specified';
+            return locations.join(' or ');
+        }
+        
+        async function sendInquiry() {
+            const inquiry = document.getElementById('inquiry').value;
+            if (!inquiry.trim()) return;
+        
+            const chatBox = document.getElementById('chat-box');
+            addMessage("You", inquiry);
+            
+            try {
+                const response = await fetch('/api/start_conversation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inquiry: inquiry })
+                });
+        
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+        
+                const data = await response.json();
+                addMessage("LeadBot", data.response);
+                
+                // Update classification data if available
+                if (data.classification) {
+                    updateClassificationDisplay(data.classification);
+                    await checkHandoffStatus();
+                }
+        
+                // Clear input after successful send
+                document.getElementById('inquiry').value = '';
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage("LeadBot", "Sorry, I encountered an error. Please try again.");
+            }
+        }
+        
+        async function checkHandoffStatus() {
+            try {
+                const response = await fetch('/api/handoff_status');
+                const data = await response.json();
+                
+                const statusElement = document.getElementById('handoff-status');
+                if (data.ready) {
+                    statusElement.innerHTML = `<div class="status-ready">✓ ${data.status}</div>`;
+                } else {
+                    statusElement.innerHTML = `
+                        <div class="status-pending">
+                            Still needed: ${data.missing_fields.join(', ')}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error checking handoff status:', error);
+            }
+        }
+        
+        function updateClassificationDisplay(classification) {
+            const displayElement = document.getElementById('classification-data');
+            displayElement.innerHTML = `
+                <div class="classification-box">
+                    <div><strong>Budget:</strong> ${formatBudget(classification.budget)}</div>
+                    <div><strong>Location(s):</strong> ${formatLocations(classification.locations)}</div>
+                    <div><strong>Property Type:</strong> ${classification.property_type || 'Not specified'}</div>
+                    <div><strong>Additional Requirements:</strong> ${classification.additional_requirements || 'None'}</div>
+                </div>
+            `;
+        }
+        
+        function addMessage(sender, message) {
+            const chatBox = document.getElementById('chat-box');
+            const messageElement = document.createElement("div");
+            messageElement.className = sender === "You" ? "user-message" : "bot-message";
+            messageElement.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            chatBox.appendChild(messageElement);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            
+            // Store in conversation history
+            conversationHistory.push({ sender, message });
+        }
+        
+        // Add event listener for enter key in textarea
+        document.getElementById('inquiry').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendInquiry();
+            }
+        });
+        </script>
+</body>
+</html>
